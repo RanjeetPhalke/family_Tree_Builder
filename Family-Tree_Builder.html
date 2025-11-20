@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Family Tree Builder</title>
+  <style>
+    :root{--accent:#4f46e5; --muted:#6b7280; --bg:#f8fafc}
+    *{box-sizing:border-box}
+    body{font-family:Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; margin:0;background:var(--bg);color:#0f172a}
+    .container{max-width:1100px;margin:28px auto;padding:20px}
+    header{display:flex;align-items:center;gap:18px;margin-bottom:18px}
+    h1{margin:0;font-size:20px}
+
+    /* layout */
+    .grid{display:grid;grid-template-columns:360px 1fr 320px;gap:18px}
+    .card{background:#fff;border-radius:10px;padding:14px;box-shadow:0 6px 18px rgba(15,23,42,0.06)}
+    .form-row{display:flex;gap:8px}
+    label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+    input[type=text], input[type=date], select{width:100%;padding:8px;border:1px solid #e6edf3;border-radius:6px;font-size:14px}
+    select{appearance:auto;background:#fff;color:#0f172a}
+    button{background:var(--accent);color:#fff;padding:8px 10px;border-radius:8px;border:0;cursor:pointer}
+    button.ghost{background:transparent;color:var(--accent);border:1px solid rgba(79,70,229,0.15)}
+    .small{font-size:13px;padding:6px 8px}
+
+    /* tree area */
+    .tree-area{padding:12px;min-height:420px;overflow:auto}
+    .member-line{padding:6px 10px;border-radius:8px;display:flex;align-items:center;justify-content:space-between;margin:6px 0}
+    .member-name{display:flex;align-items:center;gap:10px}
+    .avatar{width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:#eef2ff;color:var(--accent);font-weight:700}
+    .muted{color:var(--muted);font-size:13px}
+    .children{margin-left:26px;border-left:1px dashed #e6edf3;padding-left:12px}
+
+    /* detail panel */
+    .detail-row{margin-bottom:10px}
+    .chips{display:flex;gap:6px;flex-wrap:wrap}
+    .chip{background:#f1f5f9;padding:6px 8px;border-radius:999px;font-size:13px}
+
+    /* responsive */
+    @media (max-width:1000px){.grid{grid-template-columns:1fr;}
+      .tree-area{min-height:240px}}
+
+    /* tiny helpers */
+    .controls{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+    textarea{width:100%;min-height:70px;padding:8px;border-radius:6px;border:1px solid #e6edf3}
+    .search{display:flex;gap:8px;align-items:center}
+    .notice{font-size:13px;color:var(--muted);margin-top:8px}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Family Tree Builder — Using Single HTML Page</h1>
+      <div class="muted">Add members, pick parents, view tree, edit & delete. Data saved to localStorage.</div>
+    </header>
+
+    <div class="grid">
+      
+      <div class="card">
+        <h3 style="margin-top:0">Add / Edit Member</h3>
+        <form id="memberForm">
+          <input type="hidden" id="memberId" />
+          <div style="margin-bottom:10px">
+            <label for="name">Name *</label>
+            <input id="name" type="text" required placeholder="Full name" />
+          </div>
+          <div class="form-row" style="margin-bottom:10px">
+            <div style="flex:1">
+              <label for="gender">Gender</label>
+              <select id="gender">
+                <option value="">--</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div style="width:150px">
+              <label for="dob">Date of Birth</label>
+              <input id="dob" type="date" />
+            </div>
+          </div>
+          <div style="margin-bottom:10px">
+            <label for="father">Father</label>
+            <select id="father"><option value="">-- none --</option></select>
+          </div>
+          <div style="margin-bottom:10px">
+            <label for="mother">Mother</label>
+            <select id="mother"><option value="">-- none --</option></select>
+          </div>
+
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button type="submit">Save Member</button>
+            <button type="button" id="resetForm" class="ghost">Reset</button>
+           
+          </div>
+          <div class="notice">Tip: Selecting father or mother will automatically link the new member as a child of that parent.</div>
+        </form>
+
+        <hr style="margin:14px 0" />
+        
+      </div>
+
+      
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <h3 style="margin:0">Family Tree</h3>
+          <div class="search">
+            <input id="searchInput" type="text" placeholder="Search by name" style="padding:8px;border-radius:8px;border:1px solid #e6edf3" />
+            <button id="searchBtn" class="small ghost">Find</button>
+          </div>
+        </div>
+        <div class="tree-area" id="treeRoot">
+          
+        </div>
+      </div>
+
+      
+      <div class="card">
+        <h3 style="margin-top:0">Member Details</h3>
+        <div id="details">Select a member from the tree to view details.</div>
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button id="editBtn" class="ghost small">Edit Selected</button>
+          <button id="deleteBtn" class="small" style="background:#ef4444">Delete Selected</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+   
+
+    const STORAGE_KEY = 'mini-family-tree:v1'
+
+    function uid(prefix='m'){
+      return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2,8)
+    }
+
+    
+    let state = { members: {} };
+    function load(){
+      try{
+        const raw = localStorage.getItem(STORAGE_KEY)
+        if(raw){ state = JSON.parse(raw) }
+      }catch(e){ console.warn('load failed', e); state = { members: {} } }
+    }
+    function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) }
+
+    
+    function membersArray(){
+      return Object.values(state.members).sort((a,b)=>a.name.localeCompare(b.name))
+    }
+
+    
+    function upsertMember(data){
+      
+      let member = null
+      if(!data.name || !data.name.trim()) throw new Error('Name is required')
+      if(data.id && state.members[data.id]){
+        member = state.members[data.id]
+        Object.assign(member, { name: data.name.trim(), gender: data.gender || '', dob: data.dob || '', fatherId: data.fatherId || '', motherId: data.motherId || '' })
+      } else {
+        const id = data.id || uid()
+        member = { id, name: data.name.trim(), gender: data.gender || '', dob: data.dob || '', fatherId: data.fatherId || '', motherId: data.motherId || '', children: [] }
+        state.members[id] = member
+      }
+
+      
+     
+      for(const m of Object.values(state.members)){
+        if(m.children && m.children.includes(member.id) && m.id !== member.fatherId && m.id !== member.motherId){
+          m.children = m.children.filter(x=>x!==member.id)
+        }
+      }
+
+      if(member.fatherId){
+        const f = state.members[member.fatherId]
+        if(f){ f.children = Array.from(new Set([...(f.children||[]), member.id])) }
+      }
+      if(member.motherId){
+        const m = state.members[member.motherId]
+        if(m){ m.children = Array.from(new Set([...(m.children||[]), member.id])) }
+      }
+
+      save()
+      return member
+    }
+
+    function deleteMember(id){
+      if(!state.members[id]) return
+      
+      const mem = state.members[id]
+      if(mem.fatherId && state.members[mem.fatherId]){
+        state.members[mem.fatherId].children = state.members[mem.fatherId].children.filter(x=>x!==id)
+      }
+      if(mem.motherId && state.members[mem.motherId]){
+        state.members[mem.motherId].children = state.members[mem.motherId].children.filter(x=>x!==id)
+      }
+      
+      for(const cid of mem.children || []){
+        if(state.members[cid]){
+          const child = state.members[cid]
+          if(child.fatherId === id) child.fatherId = ''
+          if(child.motherId === id) child.motherId = ''
+        }
+      }
+      delete state.members[id]
+      save()
+    }
+
+    
+    function getRoots(){
+      const arr = membersArray()
+      return arr.filter(m=>!m.fatherId && !m.motherId)
+    }
+
+    
+    const treeRoot = document.getElementById('treeRoot')
+    const details = document.getElementById('details')
+    const memberForm = document.getElementById('memberForm')
+    const selectFather = document.getElementById('father')
+    const selectMother = document.getElementById('mother')
+    const searchInput = document.getElementById('searchInput')
+
+    let selectedMemberId = null
+
+    function formatDOB(dob){
+      if(!dob) return '—'
+      try{ const dt = new Date(dob); if(isNaN(dt)) return dob; return dt.toLocaleDateString() }catch(e){return dob}
+    }
+
+    function getSiblings(m){
+      if(!m) return []
+      const siblings = new Set()
+      if(m.fatherId && state.members[m.fatherId]){
+        for(const cid of state.members[m.fatherId].children||[]) if(cid!==m.id) siblings.add(cid)
+      }
+      if(m.motherId && state.members[m.motherId]){
+        for(const cid of state.members[m.motherId].children||[]) if(cid!==m.id) siblings.add(cid)
+      }
+      return Array.from(siblings).map(id=>state.members[id])
+    }
+
+    function renderMemberLine(member, level=0){
+      const line = document.createElement('div')
+      line.className = 'member-line'
+
+      const left = document.createElement('div')
+      left.className = 'member-name'
+      left.style.cursor = 'pointer'
+
+      const avatar = document.createElement('div')
+      avatar.className = 'avatar'
+      avatar.textContent = (member.name||' ')[0].toUpperCase()
+      left.appendChild(avatar)
+
+      const txt = document.createElement('div')
+      const nm = document.createElement('div')
+      nm.textContent = member.name
+      nm.style.fontWeight = 600
+      const sub = document.createElement('div')
+      sub.className = 'muted'
+      sub.textContent = `${member.gender || '—'} • ${formatDOB(member.dob)}`
+      txt.appendChild(nm); txt.appendChild(sub)
+      left.appendChild(txt)
+
+      left.addEventListener('click', ()=>{
+        selectedMemberId = member.id
+        showDetails(member.id)
+        
+        document.querySelectorAll('.member-line').forEach(el=>el.style.background='')
+        line.style.background = '#f8fafc'
+      })
+
+      const right = document.createElement('div')
+      right.style.display = 'flex'; right.style.gap='8px'; right.style.alignItems='center'
+      const addChildBtn = document.createElement('button')
+      addChildBtn.className = 'small ghost'
+      addChildBtn.textContent = 'Add child'
+      addChildBtn.addEventListener('click', (ev)=>{
+        ev.stopPropagation()
+        
+        document.getElementById('memberId').value = ''
+        document.getElementById('name').value = ''
+        document.getElementById('gender').value = ''
+        document.getElementById('dob').value = ''
+        
+        if(member.gender && member.gender.toLowerCase().startsWith('m')){
+          selectFather.value = member.id
+          selectMother.value = ''
+        } else if(member.gender && member.gender.toLowerCase().startsWith('f')){
+          selectMother.value = member.id
+          selectFather.value = ''
+        } else {
+          
+          selectFather.value = member.id
+          selectMother.value = ''
+        }
+        document.getElementById('name').focus()
+      })
+
+      right.appendChild(addChildBtn)
+      line.appendChild(left)
+      line.appendChild(right)
+
+      
+      const wrapper = document.createElement('div')
+      wrapper.appendChild(line)
+
+      if(member.children && member.children.length){
+        const childContainer = document.createElement('div')
+        childContainer.className = 'children'
+        for(const cid of member.children){
+          const child = state.members[cid]
+          if(child) childContainer.appendChild(renderMemberLine(child, level+1))
+        }
+        wrapper.appendChild(childContainer)
+      }
+
+      return wrapper
+    }
+
+    function renderTree(filter=null){
+      treeRoot.innerHTML = ''
+      
+      const roots = getRoots()
+      if(Object.keys(state.members).length===0){
+        treeRoot.innerHTML = '<div class="muted">No members yet. Use the form to add people to the tree.</div>'
+        return
+      }
+
+      function shouldShow(m){
+        if(!filter) return true
+        return m.name.toLowerCase().includes(filter.toLowerCase())
+      }
+
+     
+      function renderBranch(member){
+        
+        const el = renderMemberLine(member)
+        if(!filter) return el
+        
+        const matches = (function check(m){
+          if(shouldShow(m)) return true
+          for(const cid of m.children || []){
+            if(check(state.members[cid])) return true
+          }
+          return false
+        })(member)
+        if(!matches){ el.style.display = 'none' }
+        return el
+      }
+
+      
+      roots.sort((a,b)=>a.name.localeCompare(b.name)).forEach(r=>{
+        treeRoot.appendChild(renderBranch(r))
+      })
+    }
+
+    function showDetails(id){
+      const m = state.members[id]
+      if(!m){ details.innerHTML = 'Member not found'; return }
+      const html = []
+      html.push(`<div class="detail-row"><strong>${m.name}</strong></div>`)
+      html.push(`<div class="detail-row"><span class="muted">Gender:</span> ${m.gender || '—'}</div>`)
+      html.push(`<div class="detail-row"><span class="muted">Date of Birth:</span> ${formatDOB(m.dob)}</div>`)
+      const father = m.fatherId ? (state.members[m.fatherId]?.name||'—') : '—'
+      const mother = m.motherId ? (state.members[m.motherId]?.name||'—') : '—'
+      html.push(`<div class="detail-row"><span class="muted">Father:</span> ${father}</div>`)
+      html.push(`<div class="detail-row"><span class="muted">Mother:</span> ${mother}</div>`)
+
+      
+      const children = (m.children||[]).map(id=>state.members[id]?.name||'').filter(Boolean)
+      html.push(`<div class="detail-row"><span class="muted">Children:</span> ${children.length?'<div class="chips">'+children.map(c=>'<div class="chip">'+c+'</div>').join('')+'</div>':'—'}</div>`)
+
+      
+      const siblings = getSiblings(m)
+      html.push(`<div class="detail-row"><span class="muted">Siblings:</span> ${siblings.length?'<div class="chips">'+siblings.map(s=>'<div class="chip">'+s.name+'</div>').join('')+'</div>':'—'}</div>`)
+
+      details.innerHTML = html.join('')
+
+      
+      document.getElementById('editBtn').onclick = ()=>{
+        document.getElementById('memberId').value = m.id
+        document.getElementById('name').value = m.name
+        document.getElementById('gender').value = m.gender || ''
+        document.getElementById('dob').value = m.dob || ''
+        selectFather.value = m.fatherId || ''
+        selectMother.value = m.motherId || ''
+        window.scrollTo({top:0,behavior:'smooth'})
+      }
+      document.getElementById('deleteBtn').onclick = ()=>{
+        if(!confirm('Delete '+m.name+'? This will unlink them from parents and children.')) return
+        deleteMember(m.id)
+        selectedMemberId = null
+        details.innerHTML = 'Select a member from the tree to view details.'
+        populateParentSelects()
+        renderTree(searchInput.value.trim())
+      }
+    }
+
+    
+    function populateParentSelects(){
+      const arr = membersArray()
+     
+      selectFather.innerHTML = '<option value="">-- none --</option>'
+      selectMother.innerHTML = '<option value="">-- none --</option>'
+      for(const m of arr){
+        const opt1 = document.createElement('option'); opt1.value = m.id; opt1.textContent = m.name + (m.gender?` (${m.gender})`: '')
+        const opt2 = opt1.cloneNode(true)
+        selectFather.appendChild(opt1)
+        selectMother.appendChild(opt2)
+      }
+    }
+
+   
+    memberForm.addEventListener('submit', ev=>{
+      ev.preventDefault()
+      try{
+        const id = document.getElementById('memberId').value || ''
+        const name = document.getElementById('name').value
+        const gender = document.getElementById('gender').value
+        const dob = document.getElementById('dob').value
+        const fatherId = document.getElementById('father').value
+        const motherId = document.getElementById('mother').value
+        const m = upsertMember({ id, name, gender, dob, fatherId, motherId })
+        // if user selected parents, ensure parent's children include this member (handled in upsert)
+        populateParentSelects()
+        renderTree(searchInput.value.trim())
+        // focus feedback
+        document.getElementById('name').value = ''
+        document.getElementById('memberId').value = ''
+        document.getElementById('gender').value = ''
+        document.getElementById('dob').value = ''
+        document.getElementById('father').value = ''
+        document.getElementById('mother').value = ''
+      }catch(err){ alert(err.message || err) }
+    })
+
+    document.getElementById('resetForm').addEventListener('click', ()=>{
+      document.getElementById('memberId').value = ''
+      document.getElementById('name').value = ''
+      document.getElementById('gender').value = ''
+      document.getElementById('dob').value = ''
+      document.getElementById('father').value = ''
+      document.getElementById('mother').value = ''
+    })
+
+    document.getElementById('exportBtn').addEventListener('click', ()=>{
+      const data = JSON.stringify(state, null, 2)
+      const w = window.open('', '_blank')
+      w.document.write('<pre>'+escapeHtml(data)+'</pre>')
+      w.document.title = 'Family Tree JSON'
+    })
+
+    function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+
+    document.getElementById('importBtn').addEventListener('click', ()=>{
+      const txt = document.getElementById('importArea').value.trim()
+      if(!txt) return alert('Paste JSON into textarea first')
+      try{
+        const parsed = JSON.parse(txt)
+        if(parsed && parsed.members){ state = parsed; save(); populateParentSelects(); renderTree(); document.getElementById('importArea').value = ''; alert('Imported') }
+        else alert('Invalid format. Expected object with a "members" property.')
+      }catch(e){ alert('Invalid JSON: '+e.message) }
+    })
+
+    document.getElementById('clearAll').addEventListener('click', ()=>{
+      if(!confirm('Clear all saved family data?')) return
+      state = { members: {} }
+      save(); populateParentSelects(); renderTree(); details.innerHTML = 'Select a member from the tree to view details.'
+    })
+
+    document.getElementById('searchBtn').addEventListener('click', ()=>{
+      renderTree(searchInput.value.trim())
+    })
+    searchInput.addEventListener('keydown', (e)=>{ if(e.key=== 'Enter') renderTree(searchInput.value.trim()) })
+
+   
+    load()
+    populateParentSelects()
+    renderTree()
+
+    
+    if(Object.keys(state.members).length===0){
+      const a = upsertMember({ name: 'Amit', gender: 'Male', dob: '1970-05-12' })
+      const b = upsertMember({ name: 'Rohan', gender: 'Male', dob: '1995-03-02', fatherId: a.id })
+      const c = upsertMember({ name: 'Aarav', gender: 'Male', dob: '2020-01-10', fatherId: b.id })
+      populateParentSelects(); renderTree()
+    }
+
+  </script>
+</body>
+</html>
